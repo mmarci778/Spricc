@@ -1,0 +1,6 @@
+# core: classical backend, post-processing, server, tools, evaluation
+numpy>=1.24
+opencv-python>=4.8
+scikit-image>=0.21
+scipy>=1.10
+flask>=3.0

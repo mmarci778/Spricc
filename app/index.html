@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Holdroute</title>
+<style>
+  :root {
+    --stage: #25282D;
+    --panel: #F1F2F4;
+    --ink: #1D2025;
+    --ink-2: #5B616B;
+    --line: #D6D9DE;
+    --field: #FFFFFF;
+    --focus: #1D2025;
+    --radius: 5px;
+    font-family: ui-sans-serif, "Avenir Next", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--stage); }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) 328px; height: 100%; }
+  @media (max-width: 820px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 46vh); }
+  }
+
+  /* ---------- stage ---------- */
+  .stage { position: relative; overflow: hidden; touch-action: none; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .toolbar {
+    position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; flex-wrap: wrap;
+    padding-top: env(safe-area-inset-top, 0);
+  }
+  .group { display: flex; background: var(--panel); border-radius: var(--radius); overflow: hidden;
+           box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+  .group button { border: 0; background: transparent; padding: 7px 11px; min-height: 32px; }
+  .group button + button { border-left: 1px solid var(--line); }
+  .group button:hover:not(:disabled) { background: #E4E6EA; }
+  .group button:disabled { color: #9AA0A8; cursor: default; }
+  .group button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .status {
+    position: absolute; left: 12px; bottom: 12px; max-width: calc(100% - 24px);
+    background: rgba(241,242,244,.94); padding: 6px 10px; border-radius: var(--radius);
+    font-variant-numeric: tabular-nums; pointer-events: none;
+  }
+  .status:empty { display: none; }
+  .empty {
+    position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px;
+    color: #E8EAED; text-align: center; padding: 24px;
+  }
+  .empty h1 { font-size: 20px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+  .empty p { margin: 0; max-width: 46ch; color: #AEB3BA; line-height: 1.5; }
+  .empty .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .drop-on .stage::after { content: ""; position: absolute; inset: 8px; border: 2px dashed #E8EAED; border-radius: 8px; pointer-events: none; }
+
+  /* ---------- sheet (side panel) ---------- */
+  .sheet { background: var(--panel); overflow-y: auto; display: flex; flex-direction: column; min-height: 0;
+           padding-bottom: env(safe-area-inset-bottom, 0); }
+  .sheet section { padding: 14px 16px; }
+  .sheet section + section { border-top: 1px solid var(--line); }
+  .sheet h2 { font-size: 13px; font-weight: 650; margin: 0 0 8px; }
+  .wallname { font-weight: 650; overflow-wrap: anywhere; }
+  .muted { color: var(--ink-2); }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row.between { justify-content: space-between; }
+  .btn { border: 1px solid #BFC4CB; background: var(--field); border-radius: var(--radius); padding: 6px 10px; min-height: 30px; }
+  .btn:hover:not(:disabled) { background: #E9EBEE; }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: #34393F; }
+  .btn.quiet { border-color: transparent; background: transparent; color: var(--ink-2); padding: 6px 8px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.danger:hover:not(:disabled) { background: #F6DADA; border-color: #D99; }
+
+  ul.list { list-style: none; margin: 0; padding: 0; }
+  .route { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; width: 100%;
+           border: 0; background: transparent; text-align: left; padding: 7px 8px; border-radius: var(--radius); }
+  .route:hover { background: #E7E9EC; }
+  .route[aria-current="true"] { background: #fff; box-shadow: 0 0 0 1px #BFC4CB; }
+  .tape { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0,0,0,.45); }
+  .count { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+  .field { width: 100%; border: 1px solid #BFC4CB; border-radius: var(--radius); background: var(--field); padding: 7px 9px; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+  .swatch { width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0;
+            box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px rgba(0,0,0,.4); }
+  .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--ink); }
+
+  .holds { margin-top: 8px; max-height: 210px; overflow-y: auto; }
+  .hold { display: grid; grid-template-columns: 22px 14px 1fr auto; gap: 8px; align-items: center; padding: 3px 4px; border-radius: var(--radius); }
+  .hold:hover { background: #E7E9EC; }
+  .hold .n { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+  .hold .chip { width: 14px; height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.3); }
+  .hold button.go { border: 0; background: transparent; text-align: left; padding: 3px 2px; }
+  .hold button.x { border: 0; background: transparent; color: var(--ink-2); padding: 2px 7px; border-radius: 4px; }
+  .hold button.x:hover { background: #D9DCE0; color: var(--ink); }
+
+  label.check { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+  .hint { margin: 8px 0 0; color: var(--ink-2); line-height: 1.45; }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--ink); color: #fff; padding: 8px 12px; border-radius: var(--radius); }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: no-preference) { .btn, .route { transition: background-color .12s; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <main class="stage" id="stage">
+    <canvas id="cv" role="img" aria-label="Climbing wall with detected holds. Click a hold to add or remove it from the active route."></canvas>
+
+    <div class="toolbar" id="toolbar" hidden>
+      <div class="group" role="group" aria-label="Tool">
+        <button id="tSelect" aria-pressed="true">Build route</button>
+        <button id="tFix" aria-pressed="false">Fix detections</button>
+      </div>
+      <div class="group" id="fixTools" role="group" aria-label="Fix tool" hidden>
+        <button data-fix="hide" aria-pressed="true">Hide</button>
+        <button data-fix="merge" aria-pressed="false">Merge</button>
+        <button data-fix="draw" aria-pressed="false">Draw</button>
+      </div>
+      <div class="group" role="group" aria-label="History">
+        <button id="undo" title="Undo (Ctrl/Cmd+Z)">Undo</button>
+        <button id="redo" title="Redo (Ctrl/Cmd+Shift+Z)">Redo</button>
+      </div>
+      <div class="group" role="group" aria-label="Zoom">
+        <button id="zOut" aria-label="Zoom out">−</button>
+        <button id="zFit">Fit</button>
+        <button id="zIn" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div class="status" id="status" aria-live="polite"></div>
+
+    <div class="empty" id="empty">
+      <h1>Open a wall to start setting routes</h1>
+      <p>Drop a wall photo and its <code>.holds.json</code> here (run <code>detect.py</code> to make one). Saved routes can be dropped in too.</p>
+      <div class="actions">
+        <button class="btn primary" id="openBtn">Choose files…</button>
+        <button class="btn" id="detectBtn" hidden>Detect holds in a photo…</button>
+      </div>
+      <p id="emptyMsg"></p>
+    </div>
+  </main>
+
+  <aside class="sheet" id="sheet" hidden>
+    <section>
+      <div class="row between">
+        <div><div class="wallname" id="wallName"></div><div class="muted" id="wallMeta"></div></div>
+        <button class="btn quiet" id="openBtn2">Open…</button>
+      </div>
+    </section>
+
+    <section>
+      <div class="row between"><h2>Routes</h2><button class="btn" id="newRoute">New route</button></div>
+      <ul class="list" id="routeList"></ul>
+    </section>
+
+    <section id="activeSec">
+      <h2>Active route</h2>
+      <input class="field" id="routeName" aria-label="Route name" maxlength="60">
+      <div class="swatches" id="swatches" role="group" aria-label="Tape colour"></div>
+      <div class="row between">
+        <span class="muted" id="routeCount"></span>
+        <span class="row">
+          <button class="btn quiet" id="clearRoute">Clear</button>
+          <button class="btn quiet" id="dupRoute">Duplicate</button>
+          <button class="btn quiet danger" id="delRoute">Delete</button>
+        </span>
+      </div>
+      <div class="holds" id="holdList"></div>
+      <p class="hint" id="hint"></p>
+    </section>
+
+    <section>
+      <h2>View</h2>
+      <label class="check"><input type="checkbox" id="oFocus" checked> Focus the active route</label>
+      <label class="check"><input type="checkbox" id="oOutlines" checked> Outline every hold</label>
+      <label class="check"><input type="checkbox" id="oOthers" checked> Mark holds used by other routes</label>
+      <label class="check"><input type="checkbox" id="oPath"> Draw the line between holds</label>
+    </section>
+
+    <section>
+      <h2>Routes file</h2>
+      <div class="row"><button class="btn" id="exportBtn">Export</button><button class="btn" id="importBtn">Import…</button></div>
+      <p class="hint">Routes are saved in this browser automatically. Export a file to move them to another device.</p>
+    </section>
+  </aside>
+</div>
+
+<input type="file" id="files" multiple accept="image/*,.json,application/json" hidden>
+<input type="file" id="detectFile" accept="image/*" hidden>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+/* ============================================================
+   Data model
+   - holds.json (from detect.py) is immutable. Hold ids never change.
+   - Everything the user does lives in `state`: routes (ordered hold ids)
+     and `ov` (overrides: hidden / merged / added holds).
+   ============================================================ */
+const TAPE = [
+  ["Red", "#E5383B"], ["Orange", "#FB8500"], ["Yellow", "#FFD60A"], ["Green", "#2DC653"],
+  ["Blue", "#1E6FFF"], ["Purple", "#7B2CBF"], ["Pink", "#FF4D9D"], ["Black", "#16181B"], ["White", "#FFFFFF"],
+];
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+
+const S = {
+  img: null, imgName: "", W: 0, H: 0,
+  base: [],                         // holds from json
+  live: [],                         // base after overrides: {id, polys, bbox, area, anchor, color, path}
+  byId: new Map(),
+  state: { routes: [], activeId: null, ov: { hidden: [], merged: {}, added: [] } },
+  undo: [], redo: [],
+  view: { k: 1, tx: 0, ty: 0 },
+  hover: null, tool: "select", fix: "hide", mergeFrom: null, draft: [], cursor: null,
+  opts: { focus: true, outlines: true, others: true, path: false },
+  storeKey: null, serverDetect: false,
+};
+
+/* ---------- geometry ---------- */
+function polyArea(p) { let a = 0; for (let i = 0, j = p.length - 1; i < p.length; j = i++) a += (p[j][0] + p[i][0]) * (p[j][1] - p[i][1]); return Math.abs(a / 2); }
+function inPoly(x, y, p) {                       // ray casting
+  let c = false;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    const xi = p[i][0], yi = p[i][1], xj = p[j][0], yj = p[j][1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+function distSeg(x, y, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+  let t = l2 ? ((x - a[0]) * dx + (y - a[1]) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(x - (a[0] + t * dx), y - (a[1] + t * dy));
+}
+function distPoly(x, y, p) { let d = Infinity; for (let i = 0, j = p.length - 1; i < p.length; j = i++) d = Math.min(d, distSeg(x, y, p[j], p[i])); return d; }
+function bboxOf(polys) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of polys) for (const [x, y] of p) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  return [x0, y0, x1 - x0, y1 - y0];
+}
+function makePath(polys) {
+  const path = new Path2D();
+  for (const p of polys) { p.forEach(([x, y], i) => i ? path.lineTo(x, y) : path.moveTo(x, y)); path.closePath(); }
+  return path;
+}
+
+/* ---------- build the live hold list (base + overrides) ---------- */
+function rebuild() {
+  const { hidden, merged, added } = S.state.ov;
+  const hid = new Set(hidden);
+  const holds = new Map();
+  for (const h of S.base) {
+    if (hid.has(h.id) || merged[h.id] != null) continue;
+    holds.set(h.id, { id: h.id, polys: [h.polygon], anchor: h.anchor, color: h.color });
+  }
+  for (const a of added) holds.set(a.id, { id: a.id, polys: [a.polygon], anchor: a.anchor, color: a.color || "#888888" });
+  for (const [from, to] of Object.entries(merged)) {          // merged parts join their target
+    const t = holds.get(resolve(+to)), f = S.base.find(b => b.id === +from) || S.state.ov.added.find(b => b.id === +from);
+    if (t && f) t.polys.push(f.polygon);
+  }
+  S.live = [...holds.values()].map(h => ({ ...h, bbox: bboxOf(h.polys), area: h.polys.reduce((s, p) => s + polyArea(p), 0), path: makePath(h.polys) }));
+  S.byId = new Map(S.live.map(h => [h.id, h]));
+  for (const r of S.state.routes) r.holds = r.holds.map(resolve).filter((id, i, a) => S.byId.has(id) && a.indexOf(id) === i);
+}
+function resolve(id) { const m = S.state.ov.merged; let n = 0; while (m[id] != null && n++ < 50) id = m[id]; return id; }
+
+/* ---------- exact hit testing ----------
+   1. point inside polygon(s): the SMALLEST containing hold wins, so a chip on a volume,
+      or a hold that overlaps its neighbour, selects the thing that is visibly on top.
+   2. if the click lands between holds, snap to the nearest outline within ~6 screen px. */
+function holdAt(x, y) {
+  let best = null;
+  for (const h of S.live) {
+    const [bx, by, bw, bh] = h.bbox;
+    if (x < bx || y < by || x > bx + bw || y > by + bh) continue;
+    if (h.polys.some(p => inPoly(x, y, p)) && (!best || h.area < best.area)) best = h;
+  }
+  if (best) return best;
+  const tol = 6 / S.view.k; let bd = tol;
+  for (const h of S.live) {
+    const [bx, by, bw, bh] = h.bbox;
+    if (x < bx - tol || y < by - tol || x > bx + bw + tol || y > by + bh + tol) continue;
+    const d = Math.min(...h.polys.map(p => distPoly(x, y, p)));
+    if (d < bd || (d === bd && best && h.area < best.area)) { bd = d; best = h; }
+  }
+  return best;
+}
+
+/* ---------- routes ---------- */
+const active = () => S.state.routes.find(r => r.id === S.state.activeId) || null;
+let routeSeq = 1;
+function newRoute(name, color, holds = []) {
+  const id = "r" + Date.now().toString(36) + (routeSeq++);
+  const r = { id, name: name || `Route ${S.state.routes.length + 1}`, color: color || TAPE[S.state.routes.length % TAPE.length][1], holds };
+  S.state.routes.push(r); S.state.activeId = id; return r;
+}
+function toggleHold(id) {
+  const r = active() || newRoute();
+  const i = r.holds.indexOf(id);
+  if (i >= 0) r.holds.splice(i, 1); else r.holds.push(id);
+  return i < 0;
+}
+
+/* ---------- undo / persistence ---------- */
+const snap = () => JSON.stringify(S.state);
+function commit(before) {                         // call after mutating S.state; `before` = snap() taken earlier
+  if (before === snap()) return;
+  S.undo.push(before); if (S.undo.length > 150) S.undo.shift(); S.redo = [];
+  afterChange();
+}
+function restore(json) { S.state = JSON.parse(json); afterChange(); }
+function doUndo() { if (!S.undo.length) return; S.redo.push(snap()); restore(S.undo.pop()); }
+function doRedo() { if (!S.redo.length) return; S.undo.push(snap()); restore(S.redo.pop()); }
+function afterChange() { rebuild(); save(); renderPanel(); draw(); }
+function save() { try { if (S.storeKey) localStorage.setItem(S.storeKey, snap()); } catch (e) { /* private mode / quota: ignore */ } }
+function load() { try { const s = localStorage.getItem(S.storeKey); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+
+/* ============================================================
+   Rendering
+   ============================================================ */
+function resizeCanvas() {
+  const r = cv.parentElement.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); draw();
+}
+function fit() {
+  if (!S.img) return;
+  const r = cv.parentElement.getBoundingClientRect(), pad = 24;
+  const tb = $("toolbar").getBoundingClientRect();                       // keep the photo clear of the floating toolbar
+  const top = Math.max(pad, tb.height ? tb.bottom - r.top + 12 : pad);
+  const availH = r.height - top - pad, k = Math.min((r.width - pad * 2) / S.W, availH / S.H);
+  S.view = { k, tx: (r.width - S.W * k) / 2, ty: top + (availH - S.H * k) / 2 }; draw();
+}
+function stroke(path, w, style, k) { ctx.lineWidth = w / k; ctx.strokeStyle = style; ctx.stroke(path); }
+
+function draw() {
+  const dpr = devicePixelRatio || 1, { k, tx, ty } = S.view;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!S.img) return;
+  ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty);
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(S.img, 0, 0);
+
+  const r = active(), sel = new Set(r ? r.holds : []);
+  const selHolds = r ? r.holds.map(id => S.byId.get(id)).filter(Boolean) : [];
+
+  if (S.opts.focus && selHolds.length && S.tool === "select") {          // dim the wall, keep the route bright
+    ctx.fillStyle = "rgba(14,16,20,.62)"; ctx.fillRect(0, 0, S.W, S.H);
+    const reveal = new Path2D(); selHolds.forEach(h => reveal.addPath(h.path));
+    ctx.save(); ctx.clip(reveal); ctx.drawImage(S.img, 0, 0); ctx.restore();
+  }
+  if (S.opts.outlines || S.tool === "fix") {
+    for (const h of S.live) {
+      if (sel.has(h.id)) continue;
+      stroke(h.path, 2.6, "rgba(255,255,255,.55)", k); stroke(h.path, 0.9, "rgba(0,0,0,.55)", k);
+    }
+  }
+  const hv = S.hover && S.byId.get(S.hover);
+  if (hv && !sel.has(hv.id)) {
+    ctx.fillStyle = S.tool === "fix" && S.fix === "hide" ? "rgba(229,56,59,.30)" : "rgba(255,255,255,.28)"; ctx.fill(hv.path);
+    stroke(hv.path, 4, "rgba(255,255,255,.95)", k); stroke(hv.path, 1.4, "rgba(0,0,0,.8)", k);
+  }
+  if (S.tool === "fix" && S.mergeFrom != null && S.byId.get(S.mergeFrom)) {
+    const m = S.byId.get(S.mergeFrom); ctx.fillStyle = "rgba(255,214,10,.35)"; ctx.fill(m.path);
+    ctx.setLineDash([8 / k, 6 / k]); stroke(m.path, 3, "#fff", k); ctx.setLineDash([]);
+  }
+  // other routes: small tape dots at each hold's anchor
+  if (S.opts.others) {
+    ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const per = new Map();
+    for (const o of S.state.routes) if (o !== r) for (const id of o.holds) { (per.get(id) || per.set(id, []).get(id)).push(o.color); }
+    for (const [id, cols] of per) {
+      const h = S.byId.get(id); if (!h) continue;
+      const sx = h.anchor[0] * k + tx, sy = h.anchor[1] * k + ty;
+      cols.slice(0, 5).forEach((c, i) => {
+        const x = sx + (i - (Math.min(cols.length, 5) - 1) / 2) * 11;
+        ctx.beginPath(); ctx.arc(x, sy, 5, 0, 7); ctx.fillStyle = c; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.beginPath(); ctx.arc(x, sy, 6.2, 0, 7); ctx.stroke();
+      });
+    }
+    ctx.restore();
+  }
+  // active route: tape outline, optional line, numbered tags
+  if (r) {
+    if (S.opts.path && selHolds.length > 1) {
+      ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.beginPath();
+      selHolds.forEach((h, i) => { const x = h.anchor[0] * k + tx, y = h.anchor[1] * k + ty; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.setLineDash([2, 8]); ctx.lineWidth = 5; ctx.strokeStyle = "#fff"; ctx.stroke();
+      ctx.setLineDash([]); ctx.lineWidth = 2; ctx.strokeStyle = r.color; ctx.stroke(); ctx.restore();
+    }
+    for (const h of selHolds) {
+      stroke(h.path, 9, "#fff", k); stroke(h.path, 5.5, r.color, k); stroke(h.path, 1, "rgba(0,0,0,.6)", k);
+    }
+    ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = "700 12px ui-sans-serif, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    selHolds.forEach((h, i) => {
+      const x = h.anchor[0] * k + tx, y = h.anchor[1] * k + ty;
+      ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+      ctx.lineWidth = 3.5; ctx.strokeStyle = r.color; ctx.stroke();
+      ctx.lineWidth = 1; ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.beginPath(); ctx.arc(x, y, 13.8, 0, 7); ctx.stroke();
+      ctx.fillStyle = "#16181B"; ctx.fillText(String(i + 1), x, y + .5);
+    });
+    ctx.restore();
+  }
+  // draw tool: polygon being drawn
+  if (S.tool === "fix" && S.fix === "draw" && S.draft.length) {
+    ctx.beginPath(); S.draft.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    if (S.cursor) ctx.lineTo(S.cursor[0], S.cursor[1]);
+    ctx.setLineDash([8 / k, 5 / k]); ctx.lineWidth = 3 / k; ctx.strokeStyle = "#fff"; ctx.stroke(); ctx.setLineDash([]);
+    ctx.lineWidth = 1 / k; ctx.strokeStyle = "#000"; ctx.stroke();
+    for (const [x, y] of S.draft) { ctx.beginPath(); ctx.arc(x, y, 4 / k, 0, 7); ctx.fillStyle = "#fff"; ctx.fill(); ctx.stroke(); }
+  }
+}
+
+/* ============================================================
+   Panel
+   ============================================================ */
+function renderPanel() {
+  const { routes } = S.state, r = active();
+  $("wallName").textContent = S.imgName;
+  $("wallMeta").textContent = `${S.live.length} holds · ${S.W}×${S.H}px`;
+  const list = $("routeList"); list.textContent = "";
+  routes.forEach((rt, i) => {
+    const li = document.createElement("li"), b = document.createElement("button");
+    b.className = "route"; b.setAttribute("aria-current", rt === r ? "true" : "false");
+    b.title = i < 9 ? `Switch to this route (key ${i + 1})` : "Switch to this route";
+    b.innerHTML = `<span class="tape"></span><span></span><span class="count"></span>`;
+    b.children[0].style.background = rt.color; b.children[1].textContent = rt.name;
+    b.children[2].textContent = `${rt.holds.length} hold${rt.holds.length === 1 ? "" : "s"}`;
+    b.onclick = () => { S.state.activeId = rt.id; save(); renderPanel(); draw(); };
+    li.append(b); list.append(li);
+  });
+  if (!routes.length) list.innerHTML = '<li class="muted" style="padding:6px 8px">No routes yet. Click a hold to start one.</li>';
+
+  $("activeSec").hidden = !r;
+  if (r) {
+    if (document.activeElement !== $("routeName")) $("routeName").value = r.name;
+    $("swatches").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === r.color)));
+    $("routeCount").textContent = `${r.holds.length} hold${r.holds.length === 1 ? "" : "s"}`;
+    const hl = $("holdList"); hl.textContent = "";
+    r.holds.forEach((id, i) => {
+      const h = S.byId.get(id); if (!h) return;
+      const d = document.createElement("div"); d.className = "hold";
+      d.innerHTML = `<span class="n"></span><span class="chip"></span><button class="go"></button><button class="x" aria-label="Remove from route">×</button>`;
+      d.children[0].textContent = i + 1; d.children[1].style.background = h.color; d.children[2].textContent = `Hold ${h.id}`;
+      d.children[2].onclick = () => zoomTo(h);
+      d.children[3].onclick = () => { const b = snap(); r.holds.splice(i, 1); commit(b); };
+      hl.append(d);
+    });
+    $("hint").textContent = r.holds.length ? "Click a numbered hold on the wall to remove it. Holds can be any colour." : "Click holds on the wall to add them in order.";
+  }
+  $("undo").disabled = !S.undo.length; $("redo").disabled = !S.redo.length;
+}
+function buildSwatches() {
+  const box = $("swatches");
+  for (const [name, c] of TAPE) {
+    const b = document.createElement("button"); b.className = "swatch"; b.style.background = c; b.dataset.c = c;
+    b.title = name; b.setAttribute("aria-label", `${name} tape`);
+    b.onclick = () => { const r = active(); if (!r) return; const s = snap(); r.color = c; commit(s); };
+    box.append(b);
+  }
+}
+let toastT; function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
+function say(msg) { $("status").textContent = msg || ""; }
+
+/* ============================================================
+   Interaction (pointer events: mouse, pen and touch; wheel + pinch zoom)
+   ============================================================ */
+const ptrs = new Map(); let drag = null, pinch = null;
+const toImg = (cx, cy) => [(cx - S.view.tx) / S.view.k, (cy - S.view.ty) / S.view.k];
+const local = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+
+function zoomAt(cx, cy, f) {
+  const v = S.view, k = Math.max(Math.min(v.k * f, 12), Math.min(0.05, v.k)), real = k / v.k;
+  v.tx = cx - (cx - v.tx) * real; v.ty = cy - (cy - v.ty) * real; v.k = k; draw();
+}
+function zoomTo(h) {
+  const r = cv.parentElement.getBoundingClientRect(), [x, y, w, hh] = h.bbox;
+  const k = Math.min(Math.max(Math.min(r.width / (w * 3), r.height / (hh * 3)), S.view.k), 6);
+  S.view = { k, tx: r.width / 2 - (x + w / 2) * k, ty: r.height / 2 - (y + hh / 2) * k }; draw();
+}
+cv.addEventListener("wheel", e => { e.preventDefault(); const [x, y] = local(e); zoomAt(x, y, Math.exp(-e.deltaY * (e.ctrlKey ? .01 : .0016))); }, { passive: false });
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, local(e));
+  if (ptrs.size === 1) drag = { start: local(e), moved: false, tx: S.view.tx, ty: S.view.ty };
+  if (ptrs.size === 2) { drag = null; const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) }; }
+});
+cv.addEventListener("pointermove", e => {
+  const p = local(e); if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, p);
+  if (pinch && ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, d / pinch.d); pinch.d = d; return;
+  }
+  if (drag && ptrs.size === 1) {
+    const dx = p[0] - drag.start[0], dy = p[1] - drag.start[1];
+    if (drag.moved || Math.hypot(dx, dy) > 5) { drag.moved = true; S.view.tx = drag.tx + dx; S.view.ty = drag.ty + dy; draw(); cv.style.cursor = "grabbing"; return; }
+  }
+  if (!ptrs.size || e.pointerType === "mouse") {
+    const [x, y] = toImg(p[0], p[1]); S.cursor = [x, y];
+    const h = holdAt(x, y), id = h ? h.id : null;
+    if (id !== S.hover || (S.tool === "fix" && S.fix === "draw")) { S.hover = id; draw(); }
+    cv.style.cursor = S.tool === "fix" && S.fix === "draw" ? "crosshair" : h ? "pointer" : "default";
+    const rt = active(); const inR = h && rt ? rt.holds.indexOf(h.id) : -1;
+    say(h ? `Hold ${h.id}${inR >= 0 ? ` · #${inR + 1} in ${rt.name}` : ""}${S.tool === "select" ? (inR >= 0 ? " · click to remove" : " · click to add") : ""}` : "");
+  }
+});
+cv.addEventListener("pointerup", e => {
+  const wasDrag = drag && drag.moved, p = local(e);
+  ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null;
+  if (drag && !wasDrag && ptrs.size === 0) onClick(...toImg(p[0], p[1]));
+  if (!ptrs.size) { drag = null; cv.style.cursor = ""; }
+});
+cv.addEventListener("pointercancel", e => { ptrs.delete(e.pointerId); pinch = null; drag = null; });
+cv.addEventListener("pointerleave", () => { if (S.hover != null) { S.hover = null; S.cursor = null; draw(); } say(""); });
+cv.addEventListener("dblclick", e => {
+  if (S.tool === "fix" && S.fix === "draw") { e.preventDefault(); finishDraw(); }
+});
+
+function onClick(x, y) {
+  const h = holdAt(x, y);
+  if (S.tool === "select") {
+    if (!h) return;
+    const b = snap(), added = toggleHold(h.id); commit(b);
+    say(`Hold ${h.id} ${added ? "added to" : "removed from"} ${active().name}`);
+    return;
+  }
+  const b = snap(), ov = S.state.ov;
+  if (S.fix === "hide" && h) { ov.hidden.push(h.id); S.state.routes.forEach(r => r.holds = r.holds.filter(i => i !== h.id)); S.hover = null; commit(b); toast(`Hold ${h.id} hidden. Undo brings it back.`); }
+  else if (S.fix === "merge" && h) {
+    if (S.mergeFrom == null) { S.mergeFrom = h.id; say(`Merging into hold ${h.id}. Click the hold to absorb, or press Esc.`); draw(); }
+    else if (h.id !== S.mergeFrom) { const into = S.mergeFrom; ov.merged[h.id] = into; S.mergeFrom = null; commit(b); toast(`Holds merged into hold ${into}.`); }
+  }
+  else if (S.fix === "draw") {
+    const first = S.draft[0];
+    if (first && S.draft.length > 2 && Math.hypot(x - first[0], y - first[1]) < 10 / S.view.k) finishDraw();
+    else { S.draft.push([Math.round(x), Math.round(y)]); draw(); }
+  }
+}
+function finishDraw() {
+  if (S.draft.length < 3) { S.draft = []; draw(); return; }
+  const b = snap(), poly = S.draft, [bx, by, bw, bh] = bboxOf([poly]);
+  const maxId = Math.max(10000, ...S.state.ov.added.map(a => a.id)) + 1;
+  const tmp = document.createElement("canvas"); tmp.width = tmp.height = 1;
+  tmp.getContext("2d").drawImage(S.img, bx + bw / 2, by + bh / 2, 1, 1, 0, 0, 1, 1);
+  const px = tmp.getContext("2d").getImageData(0, 0, 1, 1).data;
+  const ax = Math.round(bx + bw / 2), ay = Math.round(by + bh / 2);
+  S.state.ov.added.push({ id: maxId, polygon: poly, anchor: [ax, ay], color: `#${[...px.slice(0, 3)].map(v => v.toString(16).padStart(2, "0")).join("")}` });
+  S.draft = []; commit(b); toast(`Hold ${maxId} added.`);
+}
+
+/* ---------- toolbar + panel wiring ---------- */
+function setTool(t) {
+  S.tool = t; S.mergeFrom = null; S.draft = [];
+  $("tSelect").setAttribute("aria-pressed", String(t === "select")); $("tFix").setAttribute("aria-pressed", String(t === "fix"));
+  $("fixTools").hidden = t !== "fix"; draw();
+}
+$("tSelect").onclick = () => setTool("select"); $("tFix").onclick = () => setTool("fix");
+document.querySelectorAll("[data-fix]").forEach(b => b.onclick = () => {
+  S.fix = b.dataset.fix; S.mergeFrom = null; S.draft = [];
+  document.querySelectorAll("[data-fix]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); draw();
+});
+$("undo").onclick = doUndo; $("redo").onclick = doRedo;
+$("zIn").onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.35); };
+$("zOut").onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.35); };
+$("zFit").onclick = fit;
+$("newRoute").onclick = () => { const b = snap(); newRoute(); commit(b); $("routeName").focus(); $("routeName").select(); };
+$("routeName").oninput = e => { const r = active(); if (r) { r.name = e.target.value; save(); renderRouteNamesOnly(); } };
+$("routeName").onchange = () => { renderPanel(); };
+function renderRouteNamesOnly() { const bs = $("routeList").querySelectorAll(".route"); S.state.routes.forEach((r, i) => { if (bs[i]) bs[i].children[1].textContent = r.name; }); }
+$("clearRoute").onclick = () => { const r = active(); if (!r || !r.holds.length) return; const b = snap(); r.holds = []; commit(b); };
+$("dupRoute").onclick = () => { const r = active(); if (!r) return; const b = snap(); newRoute(r.name + " copy", r.color, [...r.holds]); commit(b); };
+$("delRoute").onclick = () => {
+  const r = active(); if (!r) return; const b = snap(), rs = S.state.routes, i = rs.indexOf(r);
+  rs.splice(i, 1); S.state.activeId = rs.length ? rs[Math.min(i, rs.length - 1)].id : null; commit(b);
+};
+for (const [id, key] of [["oFocus", "focus"], ["oOutlines", "outlines"], ["oOthers", "others"], ["oPath", "path"]])
+  $(id).onchange = e => { S.opts[key] = e.target.checked; draw(); };
+
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type === "text") { if (e.key === "Enter" || e.key === "Escape") e.target.blur(); return; }
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
+  else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); doRedo(); }
+  else if (e.key === "Escape") { S.mergeFrom = null; S.draft = []; draw(); }
+  else if (e.key === "Enter" && S.draft.length) finishDraw();
+  else if (/^[1-9]$/.test(e.key) && !mod) { const r = S.state.routes[+e.key - 1]; if (r) { S.state.activeId = r.id; save(); renderPanel(); draw(); } }
+  else if (e.key === "0") fit();
+});
+
+/* ============================================================
+   Loading walls, routes files and (optionally) the detection server
+   ============================================================ */
+function stableKey() { return `holdroute:v1:${S.imgName}:${S.W}x${S.H}:${S.base.length}`; }
+function loadWall(img, name, holdsJson) {
+  S.img = img; S.imgName = name; S.W = img.naturalWidth; S.H = img.naturalHeight;
+  S.base = holdsJson.holds.map(h => ({ ...h }));
+  S.storeKey = stableKey(); S.undo = []; S.redo = []; S.hover = null; S.mergeFrom = null; S.draft = [];
+  const saved = load();
+  S.state = saved && saved.routes ? saved : { routes: [], activeId: null, ov: { hidden: [], merged: {}, added: [] } };
+  S.state.ov = S.state.ov || { hidden: [], merged: {}, added: [] };
+  $("empty").hidden = true; $("sheet").hidden = false; $("toolbar").hidden = false;
+  rebuild(); resizeCanvas(); fit(); renderPanel(); setTool("select");
+  const g = holdsJson.detector;
+  toast(`${S.live.length} holds loaded${g ? ` (${g.backend})` : ""}.`);
+}
+const readImage = file => new Promise((res, rej) => { const u = URL.createObjectURL(file), i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("Could not read the image.")); i.src = u; });
+async function openFiles(files) {
+  files = [...files]; let img = null, imgFile = null, holds = null, routes = null;
+  for (const f of files) {
+    if (f.type.startsWith("image/")) { imgFile = f; img = await readImage(f).catch(e => { toast(e.message); return null; }); }
+    else if (/\.json$/i.test(f.name)) {
+      try { const j = JSON.parse(await f.text()); if (j.holds) holds = j; else if (j.routes) routes = j; } catch { toast(`${f.name} is not valid JSON.`); }
+    }
+  }
+  if (img && !holds) {
+    if (S.serverDetect) return detectFromImage(imgFile);
+    $("emptyMsg").textContent = "That photo needs a holds file. Run detect.py on it first, or start serve.py to detect here."; return;
+  }
+  if (img && holds) {
+    const nm = holds.image && holds.image.file ? holds.image.file : imgFile.name;
+    if (holds.image && (holds.image.width !== img.naturalWidth || holds.image.height !== img.naturalHeight)) toast("Warning: the photo size differs from the one that was analysed.");
+    loadWall(img, nm, holds);
+  }
+  if (routes) importRoutes(routes);
+  if (!img && holds && !S.img) $("emptyMsg").textContent = "Add the matching wall photo as well.";
+}
+function importRoutes(j) {
+  if (!S.img) { $("emptyMsg").textContent = "Open a wall first, then import its routes."; return; }
+  const b = snap(); S.state.routes = j.routes.map(r => ({ id: r.id || "r" + Math.random().toString(36).slice(2), name: r.name, color: r.color, holds: r.holds.slice() }));
+  if (j.overrides) S.state.ov = j.overrides;
+  S.state.activeId = S.state.routes.length ? S.state.routes[0].id : null; commit(b); toast(`${j.routes.length} route${j.routes.length === 1 ? "" : "s"} imported.`);
+}
+$("exportBtn").onclick = () => {
+  const data = { version: 1, wall: { image: S.imgName, width: S.W, height: S.H, holdCount: S.base.length }, overrides: S.state.ov, routes: S.state.routes };
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = S.imgName.replace(/\.[^.]+$/, "") + ".routes.json"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$("importBtn").onclick = () => { $("files").click(); };
+for (const id of ["openBtn", "openBtn2"]) $(id).onclick = () => $("files").click();
+$("files").onchange = e => { openFiles(e.target.files); e.target.value = ""; };
+
+let dragDepth = 0;
+addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; $("app").classList.add("drop-on"); });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) $("app").classList.remove("drop-on"); });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; $("app").classList.remove("drop-on"); openFiles(e.dataTransfer.files); });
+
+async function detectFromImage(file) {
+  $("emptyMsg").textContent = "Detecting holds… this can take a minute."; toast("Detecting holds…");
+  try {
+    const fd = new FormData(); fd.append("image", file);
+    const res = await fetch("/api/detect", { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    const holds = await res.json(), img = await readImage(file);
+    holds.image.file = file.name; loadWall(img, file.name, holds);
+    toast("Done. Save holds.json from the server's data folder to reuse it.");
+  } catch (err) { $("emptyMsg").textContent = "Detection failed: " + err.message; }
+}
+$("detectBtn").onclick = () => $("detectFile").click();
+$("detectFile").onchange = e => { if (e.target.files[0]) detectFromImage(e.target.files[0]); e.target.value = ""; };
+
+async function boot() {
+  buildSwatches(); new ResizeObserver(resizeCanvas).observe(cv.parentElement);
+  try { const r = await fetch("/api/ping"); S.serverDetect = r.ok; $("detectBtn").hidden = !r.ok; } catch { /* static mode */ }
+  const q = new URLSearchParams(location.search), imgUrl = q.get("image"), holdsUrl = q.get("holds");
+  if (imgUrl && holdsUrl) {
+    try {
+      const [h, i] = await Promise.all([fetch(holdsUrl).then(r => r.json()), new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = imgUrl; })]);
+      loadWall(i, (h.image && h.image.file) || imgUrl.split("/").pop(), h);
+    } catch { $("emptyMsg").textContent = "Could not load the wall named in the address."; }
+  }
+}
+boot();
+</script>
+</body>
+</html>

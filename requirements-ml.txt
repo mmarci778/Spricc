@@ -1,0 +1,6 @@
+# optional: install what you need for the backend you choose
+torch>=2.1                # + torchvision; pick the CUDA build for your GPU from pytorch.org
+pycocotools>=2.0          # SAM / SAM2 mask RLE decoding
+# SAM 1:   pip install git+https://github.com/facebookresearch/segment-anything.git
+# SAM 2.1: pip install git+https://github.com/facebookresearch/sam2.git
+ultralytics>=8.3          # YOLO-seg fine-tuning and inference
